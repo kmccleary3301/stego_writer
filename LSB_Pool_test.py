@@ -274,51 +274,40 @@ def reduce_pairing_backend_v3(pairing, pairings_are_sorted=None, pairings_are_un
     if not pairings_are_unique:
         pairing = faster_unique_2d(pairing, sorted=pairings_are_sorted)
     all_ints_sorted = faster_unique_2d(np.ndarray.flatten(pairing))
-    assignment_set = np.copy(all_ints_sorted) #:= the set of all group assignments for unique elements passed
-    print("all unique elements")
-    print(all_ints_sorted)
 
     #all_ints_sorted := sorted set of all unique elements in the pair set
     reference_array = np.swapaxes([np.arange(len(all_ints_sorted)), np.ones_like(all_ints_sorted)], 0, 1)
     pairing_dims_get = np.shape(pairing)
     new_pairs = np.ndarray.flatten(pairing)
+
     print("pairing_flattened")
-    print(new_pairs)
-    #new_pairing_2 = np.where(np.in1d(new_pairing, all_ints_sorted))
+
     new_pairs = np.searchsorted(all_ints_sorted, new_pairs)
     new_pairs = np.reshape(new_pairs, pairing_dims_get)
-    #new_pairs is the same as the input pair set, but values are replaced with their index in all_ints_sorted
-
-    print("reference_array")
-    print(reference_array)
-    print("pairing")
-    print(pairing)
-    print("new_pairs")
-    print(new_pairs)
 
     loop_flag = True
     iteration_count = 0
     active_pairs = new_pairs
 
+    assignments_1 = reference_array[active_pairs[:,0],0]
+    assignments_2 = reference_array[active_pairs[:,1],0]
+    
+
     while (loop_flag):
         count_operating_pixels = sum(reference_array[:,1])
         print("operating pixel pool -> ", count_operating_pixels)
         print("updating reference, iteration",iteration_count)
-        print("1")
         old_reference_hash = hash(reference_array.tobytes())
-        print("2")
 
-        splice_1, splice_2 = active_pairs[:,0], active_pairs[:,1]
+        is_reference_1 = np.equal(reference_array[assignments_1, 1], 0)
+        is_reference_2 = np.equal(reference_array[assignments_2, 1], 0)
+
+        #While loop below gets the true references group assignment of the entire array
+        #retains this info through loops so as not to repeat the process of finding assigned groups
         assignments_complete = False
-        assignments_1, is_reference_1 = reference_array[splice_1,0], np.equal(reference_array[splice_1,1], 0)
-        assignments_2, is_reference_2 = reference_array[splice_2,0], np.equal(reference_array[splice_2,1], 0)
-        print("3")
-        #gets the true references group assignment of the entire array
-        #there is room here to retain this info through loops so as not to repeat the loop throughout it
         while (not assignments_complete):
             update_indices_1 = np.where(is_reference_1)
             update_indices_2 = np.where(is_reference_2)
-            #print("update_indices\n", update_indices_1, "\n", update_indices_2)
             if (update_indices_1[0].size == 0 and update_indices_2[0].size == 0):
                 assignments_complete = True
                 continue
@@ -326,83 +315,38 @@ def reduce_pairing_backend_v3(pairing, pairings_are_sorted=None, pairings_are_un
             is_reference_1[update_indices_1] = np.equal(reference_array[assignments_1[update_indices_1],1], 0)
             assignments_2[update_indices_2] = reference_array[assignments_2[update_indices_2],0]
             is_reference_2[update_indices_2] = np.equal(reference_array[assignments_2[update_indices_2],1], 0)
-            #maybe try to add code at the end here that updates the reference_array so it now contains the farthest possible root
 
-        print("4")
-        #updates right side of pairs where left side has lesser assignment
+        #updates right side of pairs where left assignment is less than right assignment
         less_indices = np.where(np.less(assignments_1, assignments_2))
         reference_array[assignments_2[less_indices], 0] = assignments_1[less_indices]
         reference_array[assignments_2[less_indices], 1] = np.zeros_like(assignments_2[less_indices])        
-        print("5")
         active_pairs[less_indices, 1][0] = reference_array[active_pairs[less_indices, 1][0], 0] 
-        print("6")
-        break_flag = False
-        #while (not break_flag):
-        while (False):
-            #this goes through point list and updates them to their root
-            print("6a")
-            s1 = reference_array[active_pairs[less_indices, 1][0], 1]
-            print("6b")
-            update_indices = np.where(np.equal(s1, 0))
 
-            #update_ref_indices = np.where(np.equal(reference_array[reference_array[update_indices,0], 1], 0))
-            #reference_array[update_indices[update_ref_indices],0] = reference_array[reference_array[update_indices[update_ref_indices], 0], 0]
-            
-            
-            print("updates size ->",update_indices[0].size)
-            print("6c")
-            if (update_indices[0].size == 0):
-                break_flag = True
-            s2 = less_indices[0][update_indices]
-            print("6d")
-            s3 = active_pairs[s2, 1]
-            print("6e")
-            s4 = reference_array[s3, 0]
-            print("6f")
-            active_pairs[s2, 1] = s4
-        print("7")
+        #updates left side of pairs where left assignment is greater than right assignment
         greater_indices = np.where(np.greater(assignments_1, assignments_2))
         reference_array[assignments_1[greater_indices], 0] = assignments_2[greater_indices]
         reference_array[assignments_1[greater_indices], 1] = np.zeros_like(assignments_1[greater_indices])
-        print("8")
         active_pairs[greater_indices, 0][0] = reference_array[active_pairs[greater_indices, 0][0], 0]
-        print("9")
+        #the loop below updates reference_array values to point to true root
+        #for a given reference sequence of length n, it takes roughly log2(n) iterations to collapse
         break_flag = False
-        #while (not break_flag):
-        while (False):
-            s1 = reference_array[active_pairs[greater_indices, 0][0], 1]
-            update_indices = np.where(np.equal(s1, 0))
-            if (update_indices[0].size == 0):
-                break_flag = True
-            s2 = greater_indices[0][update_indices]
-            s3 = active_pairs[s2, 0]
-            s4 = reference_array[s3, 0]
-            active_pairs[s2, 0] = s4
-
-
-
-        print("testing new loop")
         while (not break_flag):
-            #temp_old_hash = hash(reference_array.tobytes())
             u_ind_1 = np.where(np.equal(reference_array[:,1], 0))[0]
             u_ind_2 = np.where(np.equal(reference_array[reference_array[u_ind_1,0],1], 0))[0]
-            #print("u_ind_1")
-            #print(u_ind_1)
-            #print("u_ind_2")
-            #print(u_ind_2)
             if (u_ind_2.size == 0):
                 break_flag = True
             reference_array[u_ind_1[u_ind_2],0] = reference_array[reference_array[u_ind_1[u_ind_2],0], 0]
-        
-        print("10")
-        active_pairs = active_pairs[np.where(np.not_equal(active_pairs[:,0], active_pairs[:,1]))]
-        print("11")
+        #only at this point is the shape of active pairs reduced
+        pairs_to_keep_indices = np.where(np.not_equal(active_pairs[:,0], active_pairs[:,1]))
+        active_pairs = active_pairs[pairs_to_keep_indices]
+        assignments_1 = assignments_1[pairs_to_keep_indices]
+        assignments_2 = assignments_2[pairs_to_keep_indices]
         new_reference_hash = hash(reference_array.tobytes())
-        print("12")
+
         if (old_reference_hash == new_reference_hash):
             print("identical hashes; breaking loop")
             loop_flag = False
-        print("13")
+
         iteration_count += 1
         if (iteration_count >= 200):
             loop_flag = False
@@ -417,8 +361,6 @@ def reduce_pairing_backend_v3(pairing, pairings_are_sorted=None, pairings_are_un
         if (target_indices.size == 0):
             break_flag = True
         new_reference[target_indices] = new_reference[new_reference[target_indices,0]]
-    print("new reference array")
-    print(new_reference)
 
     group_assignments = new_reference[:,0]
 
@@ -542,7 +484,7 @@ def reduce_pairing_order_v7(pairing, iterations=None, pairings_are_sorted=None, 
     #                                         pairings_are_unique=pairings_are_unique, iterations=iterations,
     #                                         return_chains=return_chains)
 
-    reduced_pairing = reduce_pairing_backend_v2(pairing, pairings_are_sorted=pairings_are_sorted,
+    reduced_pairing = reduce_pairing_backend_v3(pairing, pairings_are_sorted=pairings_are_sorted,
                                                 pairings_are_unique=pairings_are_unique,
                                                 return_chains=True)
 
@@ -801,8 +743,8 @@ def main():
     print("time taken:", time_taken)
 
 def main_2():
-    #img = cv2.imread("C:/Users/subje/Downloads/JPow.jpg")
-    img = cv2.imread("C:/Users/subje/Downloads/dhop.jpg")
+    img = cv2.imread("C:/Users/subje/Downloads/JPow.jpg")
+    #img = cv2.imread("C:/Users/subje/Downloads/dhop.jpg")
     lsb_layer = isolate_bit_image(img, 7)
     mask_size = ultimate_graph_disjoint_size_assignment(lsb_layer, reduce_iterations=10)
     float_mask = np.divide(mask_size.astype('float'), np.max(mask_size))
