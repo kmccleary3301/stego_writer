@@ -1,7 +1,11 @@
 from PyQt5.QtWidgets import *
 from PyQt5.QtWidgets import QApplication
+from PyQt5 import QtCore, QtGui
+from PyQt5.QtGui import *
+from PyQt5.QtCore import *
 import stego
 import sys, cv2
+import threading
 
 class Window(QMainWindow):
     def __init__(self):
@@ -15,12 +19,16 @@ class Window(QMainWindow):
         self.noiseMap = None
         self.imFilePath = ''
         self.image = None
+        self.image_size_assignment = None
+        self.size_assignment_made = False
         self.msg = ''
 
-        self.base_keys = [None for i in range(4)]
-        self.threshold = None
-        self.gap = None
-        self.sanitize_second_step = None
+        self.bar_update_active = False
+
+        self.shuffle_key = 17876418
+        self.threshold = 20
+        self.blob_size = 5
+        self.smart_cover = False
 
         self.file_string = None
 
@@ -40,6 +48,22 @@ class Window(QMainWindow):
         self.layout.addWidget(self.editor)
         container = QWidget()
         container.setLayout(self.layout)
+        self.p_bar = QProgressBar()
+        self.p_bar.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(self.p_bar)
+        self.p_bar_update_thread = None
+
+        #self.p_bar.deleteLater()
+        #self.p_bar = None
+
+        self.widget_progress_values = {
+            "value": 0,
+            "p_bar_label": "Encoding",
+            "step_integer": 0
+        } #this is a dict, so it's mutable and can be effectively passed by reference
+
+        #self.make_p_bar()
+
 
         # making container as central widget
         self.setCentralWidget(container)
@@ -97,6 +121,33 @@ class Window(QMainWindow):
         save_file_from_data_action.triggered.connect(self.save_file_data)
         msgMenu.addAction(save_file_from_data_action)
 
+    def make_p_bar(self):
+        self.p_bar.setValue(0)
+        self.p_bar.setFormat(self.widget_progress_values["p_bar_label"])
+        self.bar_update_active = True
+        p_bar_update_thread = threading.Timer(0.01666, self.update_p_bar)
+        p_bar_update_thread.start()
+    
+    def remove_p_bar(self):
+        self.bar_update_active = False
+        self.widget_progress_values["p_bar_label"] = ""
+        self.widget_progress_values["value"] = 0
+        self.widget_progress_values["step_integer"] = 0
+        self.p_bar.setValue(0)
+        self.p_bar.setFormat("")
+
+    def update_p_bar(self):
+        try:
+            print("step int ->",self.widget_progress_values["step_integer"])
+            self.widget_progress_values["value"] = 100*self.widget_progress_values["step_integer"]/20
+            self.p_bar.setValue(int(self.widget_progress_values["value"]))
+            if self.bar_update_active:
+                p_bar_update_thread = threading.Timer(0.01666, self.update_p_bar)
+                p_bar_update_thread.start()
+        except:
+            e = sys.exc_info()[0]
+            self.editor.setPlainText(e)
+
     def saveImg(self):
         self.save_file_name,_ = QFileDialog.getSaveFileName(self, "Save file", "", "Images (*.png)")
         if not self.save_file_name:
@@ -110,19 +161,16 @@ class Window(QMainWindow):
     def embedImageString(self, message):
         self.msg = message
         try:
-            self.image = stego.image_write_check_readable(self.image, self.msg, base_key=self.base_keys[0], string_shuffle_key=self.base_keys[1],
-                           custom_key_shuffle_key=self.base_keys[2], initial_points_shuffle_key=self.base_keys[3],
-                            threshold=self.threshold, gap=self.gap, sanitize_second_step=self.sanitize_second_step)
+            self.embed_thread = threading.Thread(target=self.embed_image_thread_target)
+            self.embed_thread.start()
         except:
             e = sys.exc_info()[0]
             self.editor.setPlainText(e)
 
     def decodeMsg(self):
         try:
-            self.msg = stego.image_read_processing(self.image, base_key=self.base_keys[0], string_shuffle_key=self.base_keys[1],
-                           custom_key_shuffle_key=self.base_keys[2], initial_points_shuffle_key=self.base_keys[3],
-                            threshold=self.threshold, gap=self.gap)
-            self.editor.setPlainText(self.msg)
+            self.decode_thread = threading.Thread(target=self.decode_image_thread_target)
+            self.decode_thread.start()
         except:
             e = sys.exc_info()[0]
             self.editor.setPlainText("<p>Error: %s</p>" % e)
@@ -132,7 +180,9 @@ class Window(QMainWindow):
                                                                   "Images (*.png *.jpeg *.jpg *.bmp *.gif)")
         if not self.file_path:
             return
-        self.image = cv2.imread(self.file_path)
+        proc_thread = threading.Thread(target=self.update_image, args=(cv2.imread(self.file_path),), kwargs={'calc_assignments': True})
+        proc_thread.start()
+        #self.update_image(cv2.imread(self.file_path), True)
         self.noiseMap = None
 
     def showImage(self):
@@ -143,40 +193,55 @@ class Window(QMainWindow):
         self.save_file_name, _ = QFileDialog.getSaveFileName(self, "Save file", "", "Images (*.png)")
         if not self.save_file_name:
             return
+        self.noiseMap = stego.convert_255(stego.isolate_bit_image(self.image, 7, return_rgb_image=True))
         cv2.imwrite(self.save_file_name, self.noiseMap, [cv2.IMWRITE_PNG_COMPRESSION, 9])
 
     def showNoiseMap(self):
         if self.image is None:
             return
-            #self.noiseMap = tW.genImageMap(self.image)
-        self.noiseMap = stego.image_lsb_display(self.image)
-        cv2.imshow('NoiseMap',self.noiseMap)
+        self.noiseMap = stego.convert_255(stego.isolate_bit_image(self.image, 7, return_rgb_image=True))
+        cv2.imshow('Noise Map',self.noiseMap)
         cv2.waitKey(0)
 
     def update_params(self):
-        for i in range(len(self.base_keys)):
-            prev_value = self.base_keys[i]
-            self.base_keys[i], ok_pressed = QInputDialog.getInt(self, "Get integer", "Base Key %i:" % (i), 0, 0,
-                                              1000000000, 1)
-            if not ok_pressed:
-                self.base_keys[i] = prev_value
-        self.threshold, ok_pressed = QInputDialog.getInt(self, "Get integer", "Threshold:", 50, 5,
-                                              100, 1)
-        self.gap, ok_pressed = QInputDialog.getInt(self, "Get integer", "Gap:", 15, 5,
-                                                               100, 1)
-        self.sanitize_second_step, ok_pressed = QInputDialog.getText(self, 'Sanitize Second Step',
-                                                                     'Checkerboard Sanitize (T/F):')
-        if self.sanitize_second_step == 'T':
-            self.sanitize_second_step = True
-        else:
-            self.sanitize_second_step = False
+        prev_value = self.shuffle_key
+        self.shuffle_key, ok_pressed = QInputDialog.getInt(self, "Get integer", "Shuffle Key:", self.shuffle_key, 0, 2**32 - 3, 1)
+        if not ok_pressed:
+            self.shuffle_key = prev_value
+        self.threshold, ok_pressed = QInputDialog.getInt(self, "Get integer", "Threshold:", self.threshold, 5, 100, 1)
+        self.blob_size, ok_pressed = QInputDialog.getInt(self, "Get integer", "Blob Thickness:", self.blob_size, 5, 100, 1)
+        self.smart_cover, ok_pressed = QInputDialog.getText(self, 'Smart Cover', 'Smart Cover (T/F):')
+        if self.smart_cover == 'T':
+            self.smart_cover = True
+        elif self.smart_cover == 'F':
+            self.smart_cover = False
 
-        for key in self.base_keys:
-            print(key)
-        print(self.threshold)
-        print(self.gap)
-        print(self.sanitize_second_step)
+    def embed_image_thread_target(self):
+        self.widget_progress_values["p_bar_label"] = "Encoding Image"
+        self.make_p_bar()
+        assignment_pass = None
+        if self.size_assignment_made:
+            assignment_pass=self.image_size_assignment
+        self.update_image(stego.image_write_new(self.image, self.msg, shuffle_key=self.shuffle_key, threshold=self.threshold, size_map=assignment_pass,
+                                        cover_flag=self.smart_cover, blob_expand_size=self.blob_size, bar_values=self.widget_progress_values))
 
+    def decode_image_thread_target(self):
+        self.widget_progress_values["p_bar_label"] = "Decoding Image"
+        self.make_p_bar()
+        self.msg = stego.image_read_new(self.image, shuffle_key=self.shuffle_key, threshold=self.threshold, blob_expand_size=self.blob_size)
+        self.editor.setPlainText(self.msg)
+
+    def update_image(self, image, calc_assignments=None):
+        print("updating image")
+        if calc_assignments is None:
+            calc_assignments = False
+        if calc_assignments:
+            self.image_size_assignment = stego.image_size_assignment(stego.isolate_bit_image(image, 7))
+            self.size_assignment_made = True
+        self.image = image
+        self.remove_p_bar()
+        print("image made")
+        
     def load_file_as_string(self):
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog

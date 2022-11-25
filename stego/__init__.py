@@ -487,7 +487,7 @@ def faster_unique_2d(in_array, sorted=None):
     else:
         raise ValueError
 
-def reduce_pairing_backend(pairing, pairings_are_sorted=None, pairings_are_unique=None, return_chains=None):
+def reduce_pairing_backend(pairing, pairings_are_sorted=None, pairings_are_unique=None, return_chains=None, bar_values=None):
     if return_chains is None:
         return_chains = True
     if pairings_are_unique is None:
@@ -500,12 +500,18 @@ def reduce_pairing_backend(pairing, pairings_are_sorted=None, pairings_are_uniqu
         pairing = np.sort(pairing, axis=1)
     if not pairings_are_unique:
         pairing = faster_unique_2d(pairing, sorted=pairings_are_sorted)
+    if bar_values is None:
+        bar_values = {
+            "value": 0,
+            "p_bar_label": "Encoding",
+            "step_integer": 0
+        }
     all_ints_sorted = faster_unique_2d(np.ndarray.flatten(pairing))
-
-    #all_ints_sorted := sorted set of all unique elements in the pair set
+    bar_values["step_integer"] += 1
     reference_array = np.swapaxes([np.arange(len(all_ints_sorted)), np.ones_like(all_ints_sorted)], 0, 1)
     pairing_dims_get = np.shape(pairing)
     new_pairs = np.ndarray.flatten(pairing)
+    bar_values["step_integer"] += 1
 
     print("pairing_flattened")
 
@@ -518,6 +524,7 @@ def reduce_pairing_backend(pairing, pairings_are_sorted=None, pairings_are_uniqu
 
     assignments_1 = reference_array[active_pairs[:,0],0]
     assignments_2 = reference_array[active_pairs[:,1],0]
+    bar_values["step_integer"] += 1
     
     while (loop_flag):
         count_operating_pixels = sum(reference_array[:,1])
@@ -576,6 +583,9 @@ def reduce_pairing_backend(pairing, pairings_are_sorted=None, pairings_are_uniqu
         iteration_count += 1
         if (iteration_count >= 200):
             loop_flag = False
+        bar_values["step_integer"] += 0.5**(iteration_count)
+    
+    bar_values["step_integer"] = int(np.ceil(bar_values["step_integer"]))
     
 
     new_reference = np.copy(reference_array)
@@ -596,19 +606,28 @@ def reduce_pairing_backend(pairing, pairings_are_sorted=None, pairings_are_uniqu
     point_group_list = np.transpose([group_assignments, all_ints_sorted])
     point_group_list = sort_along_0(point_group_list)
     groups_list = point_group_list[:,0]
+    bar_values["step_integer"] += 1
 
     chain_markers = np.not_equal(groups_list, np.concatenate((groups_list[1:], [groups_list[-1] + 1])))
     chain_markers = np.add(np.where(chain_markers), 1)
     chain_markers = np.concatenate(([0], chain_markers[0]))
 
+    bar_values["step_integer"] += 1
     chains_return = []
 
     for i in range(len(chain_markers) - 1):
         temp_chain = point_group_list[chain_markers[i]:chain_markers[i + 1], 1]
         chains_return.append(temp_chain)
+    bar_values["step_integer"] += 1
     return np.array(chains_return, dtype=object)
 
-def reduce_pairing_order(pairing, iterations=None, pairings_are_sorted=None, pairings_are_unique=None):
+def reduce_pairing_order(pairing, iterations=None, pairings_are_sorted=None, pairings_are_unique=None, bar_values=None):
+    if bar_values is None:
+        bar_values = {
+            "value": 0,
+            "p_bar_label": "Encoding",
+            "step_integer": 0
+        }
     points_are_tuples = False
     if len(list(np.shape(pairing))) >= 3:
         points_are_tuples = True
@@ -618,7 +637,7 @@ def reduce_pairing_order(pairing, iterations=None, pairings_are_sorted=None, pai
 
     reduced_pairing = reduce_pairing_backend(pairing, pairings_are_sorted=pairings_are_sorted,
                                                 pairings_are_unique=pairings_are_unique,
-                                                return_chains=True)
+                                                return_chains=True, bar_values=bar_values)
 
     if not points_are_tuples:
         return reduced_pairing
@@ -628,13 +647,15 @@ def reduce_pairing_order(pairing, iterations=None, pairings_are_sorted=None, pai
 
     return np.array(reduced_pairing, dtype=object)
 
-def new_pool(bitmap):
+def new_pool(bitmap, search_area=None):
+    if search_area is None:
+        search_area = np.ones_like(bitmap)
     print("bitmap shape ->",np.shape(bitmap))
     link_pairs_full = None
     shifts = [[0, 1], [0, -1], [1, 0], [-1, 0]]
     for shift_temp in shifts:
         shifted_bitmap = shift(bitmap, shift_temp, border_fill=-1)
-        index_similar = np.where((bitmap == shifted_bitmap))
+        index_similar = np.where((bitmap == shifted_bitmap) & (search_area == 1))
         index_reshifted = tuple([index_similar[0]-shift_temp[0], index_similar[1]-shift_temp[1]])
         linked_pairs = np.array([np.transpose(list(index_similar)), np.transpose(list(index_reshifted))])
         linked_pairs = np.swapaxes(linked_pairs, 0, 1)
@@ -644,9 +665,15 @@ def new_pool(bitmap):
             link_pairs_full = np.concatenate((link_pairs_full, linked_pairs), axis=0)
     return link_pairs_full
 
-def image_size_assignment(array_in, reduce_iterations=None):
-    pairs_get = new_pool(array_in)
-    pairing_chains_get = reduce_pairing_order(pairs_get, iterations=reduce_iterations)
+def image_size_assignment(array_in, reduce_iterations=None, search_area=None, bar_values=None):
+    if bar_values is None:
+        bar_values = {
+            "value": 0,
+            "p_bar_label": "Encoding",
+            "step_integer": 0
+        }
+    pairs_get = new_pool(array_in, search_area=search_area)
+    pairing_chains_get = reduce_pairing_order(pairs_get, iterations=reduce_iterations, bar_values=bar_values)
     size_map = np.ones_like(array_in).astype('uint64')
     sum_chains = 0
     for chain in pairing_chains_get:
@@ -684,66 +711,6 @@ def convert_255(img_array):
     
     return img_array
 
-def generate_pattern(shape, max_size):
-    pattern_top = [[0, 0, 1, 0, 0],
-                    [0, 1, 1, 1, 0],
-                    [1, 1, 1, 1, 1]]
-    pattern_bottom = [[0, 1, 1, 1, 0],
-                    [0, 0, 1, 0, 0]]
-    pattern_top = np.array(pattern_top)
-    pattern_bottom = np.array(pattern_bottom)
-    rows_to_add = (max_size - 13) // 5
-
-    t_grid = np.zeros((10*(5+rows_to_add),50))
-
-    pattern_middle = np.tile([1, 1, 1, 1, 1], (rows_to_add, 1))
-
-    if rows_to_add <= 0:
-        pattern_template = np.concatenate((pattern_top, pattern_bottom), axis=0)
-    else:
-        pattern_template = np.concatenate((pattern_top, pattern_middle, pattern_bottom), axis=0)
-
-    half_increments = [rows_to_add+3, 3]
-    full_shape = list(np.shape(pattern_template))
-    full_increments = np.copy(full_shape)
-    full_increments[0] += rows_to_add+1
-    full_increments[1] += 1
-
-    grid = np.zeros(shape)
-
-    for y in range(1,5):
-        for x in range(1,5):
-            c_1 = y*full_increments[0]
-            r_1 = x*full_increments[1]
-            c_2 = c_1+half_increments[0]
-            r_2 = r_1+half_increments[1]
-            test_select = grid[c_1:c_1+full_shape[0]+1,r_1:r_1+full_shape[1]+1]
-            t_grid[c_1:c_1+full_shape[0],r_1:r_1+full_shape[1]] = np.maximum(t_grid[c_1:c_1+full_shape[0],r_1:r_1+full_shape[1]], pattern_template)
-            t_grid[c_2:c_2+full_shape[0],r_2:r_2+full_shape[1]] = np.maximum(t_grid[c_2:c_2+full_shape[0],r_2:r_2+full_shape[1]], pattern_template)
-    
-    start_col_position = 2*full_increments[0]
-    start_row_position = 2*full_increments[1]
-    
-    grid_template = np.copy(t_grid[start_col_position:start_col_position+6+2*rows_to_add,start_row_position:start_row_position+6])
-    template_shape = list(np.shape(grid_template))
-
-    shape_multiples = list(np.shape(grid_template))
-
-    temp_shape_adjust = list(shape) #multiple of
-    temp_shape_adjust[0] += 3*shape_multiples[0] - (temp_shape_adjust[0]%shape_multiples[0])
-    temp_shape_adjust[1] += 3*shape_multiples[1] - (temp_shape_adjust[1]%shape_multiples[1])
-
-    grid = np.zeros(tuple(temp_shape_adjust))
-
-    for col in range(temp_shape_adjust[0] // shape_multiples[0]):
-        for row in range(temp_shape_adjust[1] // shape_multiples[1]):
-            col_pos = col*shape_multiples[0]
-            row_pos = row*shape_multiples[1]
-            grid[col_pos:col_pos+shape_multiples[0],row_pos:row_pos+shape_multiples[1]] = np.maximum(grid[col_pos:col_pos+shape_multiples[0],row_pos:row_pos+shape_multiples[1]], grid_template)
-    
-
-    return grid[0:shape[0],0:shape[1]]
-
 def pool_mask_visual(array_in, is_size_assignment=None):
     if is_size_assignment is None:
         is_size_assignment = False
@@ -753,6 +720,86 @@ def pool_mask_visual(array_in, is_size_assignment=None):
         size_assignment = image_size_assignment(array_in)
         float_mask = np.divide(np.sqrt(size_assignment).astype('float'), np.sqrt(np.max(size_assignment)))
     return np.multiply(float_mask, 255).astype('uint8')
+
+def gen_square_diamond(size):
+    grid = np.zeros((size*2+1, size*2+1))
+    grid_shape = np.shape(grid)
+    grid_center = [(grid_shape[0] // 2), (grid_shape[1] // 2)]
+    grid[grid_center[0], grid_center[1]] = 1
+    
+    for radius in range(size+1):
+       
+        for dir in range(4):
+            origin = np.copy(grid_center)
+            origin[dir%2] += radius*(-1)**(dir // 2)
+            for iteration in range(radius):
+                coord = np.copy(origin)
+                coord[0] += iteration*((-1)**(dir // 2 + 1))
+                coord[1] += iteration*((-1)**((dir + 3) // 2 + 1))
+                grid[coord[0], coord[1]] = 1
+    calculated_size = (2*size+1)**2 - 2*(size+1)*(size)
+    return grid
+
+def tile_diamond(shape, diamond):
+       
+    diamond_shape = list(np.shape(diamond))
+
+    rows_to_add = diamond_shape[0]-diamond_shape[1]
+    t_grid = np.zeros((10*diamond_shape[0], 10*diamond_shape[1])) 
+
+    half_increments = [diamond_shape[0]-diamond_shape[1]//2, diamond_shape[1]//2 + 1]
+    full_increments = np.copy(diamond_shape)
+    full_increments[0] += diamond_shape[0]-diamond_shape[1]+1
+    full_increments[1] += 1
+    grid = np.zeros(shape)
+
+    for y in range(1,5):
+        for x in range(1,5):
+            c_1 = y*full_increments[0]
+            r_1 = x*full_increments[1]
+            c_2 = c_1+half_increments[0]
+            r_2 = r_1+half_increments[1]
+            t_grid[c_1:c_1+diamond_shape[0],r_1:r_1+diamond_shape[1]] = np.maximum(t_grid[c_1:c_1+diamond_shape[0],r_1:r_1+diamond_shape[1]], diamond)
+            t_grid[c_2:c_2+diamond_shape[0],r_2:r_2+diamond_shape[1]] = np.maximum(t_grid[c_2:c_2+diamond_shape[0],r_2:r_2+diamond_shape[1]], diamond)
+
+    rect_start_col = 2*full_increments[0]
+    rect_start_row = 2*full_increments[1]
+    rect_size_col = diamond_shape[0]+rows_to_add+1
+    rect_size_row = diamond_shape[1]+1
+    rect_end_col = rect_start_col+2*rect_size_col
+    rect_end_row = rect_start_row+2*rect_size_row
+    
+    grid_template = np.copy(t_grid[rect_start_col:rect_end_col,rect_start_row:rect_end_row])
+    shape_multiples = list(np.shape(grid_template))
+
+    temp_shape_adjust = list(shape)
+    temp_shape_adjust[0] += 3*shape_multiples[0] - (temp_shape_adjust[0]%shape_multiples[0])
+    temp_shape_adjust[1] += 3*shape_multiples[1] - (temp_shape_adjust[1]%shape_multiples[1])
+
+    grid = np.zeros(tuple(temp_shape_adjust))
+    for col in range(temp_shape_adjust[0] // shape_multiples[0]):
+        for row in range(temp_shape_adjust[1] // shape_multiples[1]):
+            col_pos = col*shape_multiples[0]
+            row_pos = row*shape_multiples[1]
+            grid[col_pos:col_pos+shape_multiples[0],row_pos:row_pos+shape_multiples[1]] = np.maximum(grid[col_pos:col_pos+shape_multiples[0],row_pos:row_pos+shape_multiples[1]], grid_template)
+    return grid[0:shape[0],0:shape[1]]
+
+def gen_exclusion_pattern(shape, size):
+    if size <= 4: #just a checkerboard
+        x = np.zeros(shape, dtype=int)
+        x[1::2, ::2] = 1
+        x[::2, 1::2] = 1
+        return x
+    square_radius = np.floor( np.sqrt((size-0.5)/2) - 0.5).astype('uint32')
+    first_diamond_size = int((2*square_radius+1)**2 - 2*(square_radius+1)*(square_radius))
+    square_diamond_get = gen_square_diamond(square_radius)
+    added_row_size = np.shape(square_diamond_get)[1]
+    remaining_size_capacity = size - first_diamond_size
+    rows_to_add = np.maximum(0, remaining_size_capacity // added_row_size)
+    row_add_template = np.tile([1], (added_row_size))
+    row_insert_indices = np.arange(rows_to_add)+(np.shape(square_diamond_get)[0]//2)
+    diamond_final = np.insert(square_diamond_get, row_insert_indices, row_add_template, axis=0)
+    return tile_diamond(shape,diamond_final)
 
 #/end new methods
 
@@ -1033,14 +1080,22 @@ def image_write_check_readable(image, string_input, base_key=None, string_shuffl
     print('Message successfully written')
     return img_step_2
 
-def image_write_new(img_in, message, shuffle_key=None, threshold=None, cover_flag=None):
+def image_write_new(img_in, message, shuffle_key=None, threshold=None, cover_flag=None, blob_expand_size=None, bar_values=None, size_map=None):
     img = np.copy(img_in)
     if threshold is None:
-        threshold = 40
+        threshold = 20
     if shuffle_key is None:
         shuffle_key = 17876418
     if cover_flag is None:
         cover_flag = False
+    if blob_expand_size is None:
+        blob_expand_size = 5
+    if bar_values is None:
+        bar_values = {
+            "value": 0,
+            "p_bar_label": "Encoding",
+            "step_integer": 0
+        }
 
     shuffle_key %= (2**32)-3
     recovery_key = np.sin(shuffle_key).astype('float64')
@@ -1050,28 +1105,41 @@ def image_write_new(img_in, message, shuffle_key=None, threshold=None, cover_fla
     print("recovery_key ->",recovery_key)
 
     lsb_layer = isolate_bit_image(img, 7)
-    image_size_assigned = image_size_assignment(lsb_layer)
-
+    
+    bar_values["step_integer"] += 1
+    if size_map is None:
+        image_size_assigned = image_size_assignment(lsb_layer, bar_values=bar_values)
+    else:
+        image_size_assigned = size_map
+        bar_values["step_integer"] += 8
+    bar_values["step_integer"] += 1
     pool_test = np.zeros_like(lsb_layer)
     pool_test[np.where(image_size_assigned >= threshold)] = 1
-
+    bar_values["step_integer"] += 1
     print("pool_hash_write ->",hash(pool_test.tobytes()))
-
-    blob_test = expand_bitmap_white_area(pool_test, 3)
-    blob_test_2 = expand_bitmap_white_area(blob_test, 2)
-
-    scrub_area = blob_test_2*(1-blob_test)
-    new_image = sanitize_image(img, scrub_area)
+    bar_values["step_integer"] += 1
+    blob = expand_bitmap_white_area(pool_test, blob_expand_size)
+    bar_values["step_integer"] += 1
+    #scrub_area = blob*(1-pool_test)
+    #new_image = sanitize_image(img, scrub_area)
 
     scrub_area_2 = np.zeros_like(lsb_layer)
+    bar_values["step_integer"] += 1
     scrub_area_2[np.where(image_size_assigned >= threshold-5)] = 1
-    scrub_area_2 = scrub_area_2*(1-pool_test)
+    bar_values["step_integer"] += 1
+    scrub_area_2 = scrub_area_2*(1-expand_bitmap_white_area(pool_test, blob_expand_size-1))
+    bar_values["step_integer"] += 1
+    #scrub_area_2 = scrub_area_2*(1-blob)
+    #scrub_area_2 = scrub_area_2*(1-blob)
 
-    new_image = sanitize_image(new_image, scrub_area_2)
-    writable_pattern = generate_pattern(np.shape(lsb_layer), threshold-5)
-    target_set = (1-blob_test_2)*writable_pattern
+    new_image = sanitize_image(img, scrub_area_2)
+    bar_values["step_integer"] += 1
+    writable_pattern = gen_exclusion_pattern(np.shape(lsb_layer), threshold-5)
+    bar_values["step_integer"] += 1
+    target_set = (1-blob)*writable_pattern
+    bar_values["step_integer"] += 1
 
-    print("total bits before pattern correction ->",np.sum((1-blob_test_2)))
+    print("total bits before pattern correction ->",np.sum((1-blob)))
     print("total bits after  pattern correction ->",np.sum(target_set))
 
     target_set = np.where(target_set == 1)
@@ -1080,10 +1148,12 @@ def image_write_new(img_in, message, shuffle_key=None, threshold=None, cover_fla
     for i in range(2):
         target_set[i] = shuffle_seed(target_set[i], shuffle_key)
 
-    scrub_set = (1-blob_test_2)*(1-writable_pattern)
+    scrub_set = (1-blob)*(1-writable_pattern)
+    bar_values["step_integer"] += 1
     bit_make = to_bits(message)
     bit_make = string_shuffle_seed(bit_make, recovery_key)
     new_image = bits_to_image(new_image, bit_make, target_set)
+    bar_values["step_integer"] += 1
 
     #Both options below prevent pool corruption
     #However, the latter option makes it somewhat visible using the debuging methods shown here
@@ -1091,20 +1161,27 @@ def image_write_new(img_in, message, shuffle_key=None, threshold=None, cover_fla
     #Enabling cover flag makes the write much less detectable.
 
     if cover_flag: 
-        size_get_step_3 = image_size_assignment(isolate_bit_image(new_image, 7))
+        new_size_area = (1-pool_test)
+        size_get_step_3 = image_size_assigned
+        new_sizes = image_size_assignment(isolate_bit_image(new_image, 7), search_area=new_size_area)
+        size_get_step_3[np.where((new_size_area == 1))] = new_sizes[np.where((new_size_area == 1))]
         final_scrub_set = np.zeros_like(scrub_set)
         final_scrub_set[np.where(size_get_step_3 >= threshold)] = 1
         final_scrub_set = final_scrub_set*(scrub_set)
         new_image = sanitize_image(new_image, final_scrub_set)
     else:
         new_image = sanitize_image(new_image, scrub_set)
+    bar_values["step_integer"] += 1
     return new_image
 
-def image_read_new(img, shuffle_key=None, threshold=None):
+def image_read_new(img, shuffle_key=None, threshold=None, blob_expand_size=None):
     if threshold is None:
-        threshold = 40
+        threshold = 20
     if shuffle_key is None:
         shuffle_key = 17876418
+    if blob_expand_size is None:
+        blob_expand_size = 5
+
 
     shuffle_key %= (2**32)-3
     recovery_key = np.sin(shuffle_key).astype('float64')
@@ -1127,14 +1204,13 @@ def image_read_new(img, shuffle_key=None, threshold=None):
 
     print("pool_hash_read ->",hash(pool_test.tobytes()))
 
-    blob_test = expand_bitmap_white_area(pool_test, 3)
-    blob_test_2 = expand_bitmap_white_area(blob_test, 2)
+    blob = expand_bitmap_white_area(pool_test, blob_expand_size)
 
-    writable_pattern = generate_pattern(np.shape(lsb_layer), threshold-5)
+    writable_pattern = gen_exclusion_pattern(np.shape(lsb_layer), threshold-5)
 
-    target_set = (1-blob_test_2)*writable_pattern
+    target_set = (1-blob)*writable_pattern
 
-    print("total bits before pattern correction ->",np.sum((1-blob_test_2)))
+    print("total bits before pattern correction ->",np.sum((1-blob)))
     print("total bits after  pattern correction ->",np.sum(target_set))
 
     target_set = np.where(target_set == 1)

@@ -3,11 +3,23 @@ import cv2
 import numpy as np
 import sys
 
+def gen_old_diamond(max_size):
+    pattern_top = [[0, 0, 1, 0, 0],
+                    [0, 1, 1, 1, 0],
+                    [1, 1, 1, 1, 1]]
+    pattern_bottom = [[0, 1, 1, 1, 0],
+                    [0, 0, 1, 0, 0]]
+    pattern_top = np.array(pattern_top)
+    pattern_bottom = np.array(pattern_bottom)
+    rows_to_add = (max_size - 13) // 5
+    pattern_middle = np.tile([1, 1, 1, 1, 1], (rows_to_add, 1))
+    if rows_to_add <= 0:
+        pattern_template = np.concatenate((pattern_top, pattern_bottom), axis=0)
+    else:
+        pattern_template = np.concatenate((pattern_top, pattern_middle, pattern_bottom), axis=0)
+    return pattern_template
 
 def generate_pattern(shape, max_size):
-
-    
-
     pattern_top = [[0, 0, 1, 0, 0],
                     [0, 1, 1, 1, 0],
                     [1, 1, 1, 1, 1]]
@@ -128,14 +140,24 @@ def main_3():
     message = ""
     for char in alphabet[letter_select]:
         message += char
+    visual_get_0 = pool_mask_visual(stego.isolate_bit_image(img, 7))
+    cv2.imwrite("lsb_original.png", stego.convert_255(stego.isolate_bit_image(img, 7, return_rgb_image=True)), [cv2.IMWRITE_PNG_COMPRESSION, 9])
+    cv2.imwrite("mask_generated_original.png", visual_get_0, [cv2.IMWRITE_PNG_COMPRESSION, 9])
 
-    img_written = stego.image_write_new(img, message)
+    blob_size = 7
+    threshold = 15
 
-    message_recover = stego.image_read_new(img_written)
+    img_written = stego.image_write_new(img, message, cover_flag=True, blob_expand_size=blob_size, threshold=threshold)
+    
+    visual_get = pool_mask_visual(stego.isolate_bit_image(img_written, 7))
+    
+    cv2.imwrite("lsb_written.png", stego.convert_255(stego.isolate_bit_image(img_written, 7, return_rgb_image=True)), [cv2.IMWRITE_PNG_COMPRESSION, 9])
+    cv2.imwrite("mask_generated_written.png", visual_get, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+
+    message_recover = stego.image_read_new(img_written, blob_expand_size=blob_size, threshold=threshold)
 
     if (message == message_recover):
         print("message recovered exactly")
-
 
 def pool_mask_visual(array_in, is_size_assignment=None):
     if is_size_assignment is None:
@@ -147,7 +169,7 @@ def pool_mask_visual(array_in, is_size_assignment=None):
         float_mask = np.divide(np.sqrt(size_assignment).astype('float'), np.sqrt(np.max(size_assignment)))
     return np.multiply(float_mask, 255).astype('uint8')
 
-def gen_diamond(size):
+def gen_square_diamond(size):
     grid = np.zeros((size*2+1, size*2+1))
     grid_shape = np.shape(grid)
     grid_center = [(grid_shape[0] // 2), (grid_shape[1] // 2)]
@@ -164,9 +186,63 @@ def gen_diamond(size):
                 coord[1] += iteration*((-1)**((dir + 3) // 2 + 1))
                 grid[coord[0], coord[1]] = 1
     calculated_size = (2*size+1)**2 - 2*(size+1)*(size)
-    print("size: ",calculated_size,"vs",np.sum(grid))
-
     return grid
+
+def tile_diamond(shape, diamond):
+       
+    diamond_shape = list(np.shape(diamond))
+
+    rows_to_add = diamond_shape[0]-diamond_shape[1]
+    t_grid = np.zeros((10*diamond_shape[0], 10*diamond_shape[1])) 
+
+    half_increments = [diamond_shape[0]-diamond_shape[1]//2, diamond_shape[1]//2 + 1]
+    full_increments = np.copy(diamond_shape)
+    full_increments[0] += diamond_shape[0]-diamond_shape[1]+1
+    full_increments[1] += 1
+    grid = np.zeros(shape)
+
+    for y in range(1,5):
+        for x in range(1,5):
+            c_1 = y*full_increments[0]
+            r_1 = x*full_increments[1]
+            c_2 = c_1+half_increments[0]
+            r_2 = r_1+half_increments[1]
+            t_grid[c_1:c_1+diamond_shape[0],r_1:r_1+diamond_shape[1]] = np.maximum(t_grid[c_1:c_1+diamond_shape[0],r_1:r_1+diamond_shape[1]], diamond)
+            t_grid[c_2:c_2+diamond_shape[0],r_2:r_2+diamond_shape[1]] = np.maximum(t_grid[c_2:c_2+diamond_shape[0],r_2:r_2+diamond_shape[1]], diamond)
+
+    rect_start_col = 2*full_increments[0]
+    rect_start_row = 2*full_increments[1]
+    rect_size_col = diamond_shape[0]+rows_to_add+1
+    rect_size_row = diamond_shape[1]+1
+    rect_end_col = rect_start_col+2*rect_size_col
+    rect_end_row = rect_start_row+2*rect_size_row
+    
+    grid_template = np.copy(t_grid[rect_start_col:rect_end_col,rect_start_row:rect_end_row])
+    shape_multiples = list(np.shape(grid_template))
+
+    temp_shape_adjust = list(shape)
+    temp_shape_adjust[0] += 3*shape_multiples[0] - (temp_shape_adjust[0]%shape_multiples[0])
+    temp_shape_adjust[1] += 3*shape_multiples[1] - (temp_shape_adjust[1]%shape_multiples[1])
+
+    grid = np.zeros(tuple(temp_shape_adjust))
+    for col in range(temp_shape_adjust[0] // shape_multiples[0]):
+        for row in range(temp_shape_adjust[1] // shape_multiples[1]):
+            col_pos = col*shape_multiples[0]
+            row_pos = row*shape_multiples[1]
+            grid[col_pos:col_pos+shape_multiples[0],row_pos:row_pos+shape_multiples[1]] = np.maximum(grid[col_pos:col_pos+shape_multiples[0],row_pos:row_pos+shape_multiples[1]], grid_template)
+    return grid[0:shape[0],0:shape[1]]
+
+def gen_exclusion_pattern(shape, size):
+    square_radius = np.floor( np.sqrt((size-0.5)/2) - 0.5).astype('uint32')
+    first_diamond_size = int((2*square_radius+1)**2 - 2*(square_radius+1)*(square_radius))
+    square_diamond_get = gen_square_diamond(square_radius)
+    added_row_size = np.shape(square_diamond_get)[1]
+    remaining_size_capacity = size - first_diamond_size
+    rows_to_add = np.maximum(0, remaining_size_capacity // added_row_size)
+    row_add_template = np.tile([1], (added_row_size))
+    row_insert_indices = np.arange(rows_to_add)+(np.shape(square_diamond_get)[0]//2)
+    diamond_final = np.insert(square_diamond_get, row_insert_indices, row_add_template, axis=0)
+    return tile_diamond(shape,diamond_final)
 
 def main():
     img = cv2.imread("C:/Users/subje/Downloads/dhop.jpg")
@@ -304,10 +380,6 @@ def image_read(img, shuffle_key=None, threshold=None):
 
     return message_read
 
-
-
-
-
 def pattern_test():
     tile_test = np.tile([1,2,3,4,5], (3, 1))
     print("tile_test")
@@ -325,7 +397,12 @@ def pattern_test():
     grid_get = generate_pattern((400, 400), 57)
     cv2.imwrite("pattern_made.png", np.multiply(grid_get, 255).astype('uint8'), [cv2.IMWRITE_PNG_COMPRESSION, 9])
 
-
+def main_4():
+    make_pattern = gen_exclusion_pattern((400, 400),81)
+    cv2.imwrite("pattern_make.png", stego.convert_255(make_pattern), [cv2.IMWRITE_PNG_COMPRESSION, 9])
+    #diamond_make = gen_old_diamond(80)
+    #diamond_make = gen_diamond(6)
+    #tile_pattern = tile_diamond((400, 400), diamond_make)
 
 
 
@@ -336,4 +413,5 @@ def pattern_test():
 #compare_blobs()
 #main()
 main_3()
+#main_4()
 #pattern_test()
