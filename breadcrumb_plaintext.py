@@ -6,6 +6,10 @@ from PyQt5.QtCore import *
 import stego
 import sys, cv2
 import threading
+import numpy as np
+import ctypes
+myappid = 'mycompany.myproduct.subproduct.version' # arbitrary string
+ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
 class Window(QMainWindow):
     def __init__(self):
@@ -22,6 +26,7 @@ class Window(QMainWindow):
         self.image_size_assignment = None
         self.size_assignment_made = False
         self.msg = ''
+        self.p_bar_process_total_steps = 0
 
         self.bar_update_active = False
 
@@ -40,6 +45,7 @@ class Window(QMainWindow):
         self.show()
 
     def UiComponents(self):
+        self.setWindowIcon(QtGui.QIcon('logo.png'))
         self.layout = QVBoxLayout()
         self.status = QStatusBar()
         self.menubar = self.menuBar()
@@ -101,6 +107,10 @@ class Window(QMainWindow):
         save_noise_action.triggered.connect(self.saveNoise)
         imageMenu.addAction(save_noise_action)
 
+        show_pool_action = QAction("Show Artifacts", self)
+        show_pool_action.triggered.connect(self.show_artifact_map)
+        imageMenu.addAction(show_pool_action)
+
         update_params_action = QAction("Update Params", self)
         update_params_action.triggered.connect(self.update_params)
         imageMenu.addAction(update_params_action)
@@ -130,6 +140,7 @@ class Window(QMainWindow):
     
     def remove_p_bar(self):
         self.bar_update_active = False
+        self.p_bar_process_total_steps = 0
         self.widget_progress_values["p_bar_label"] = ""
         self.widget_progress_values["value"] = 0
         self.widget_progress_values["step_integer"] = 0
@@ -139,7 +150,8 @@ class Window(QMainWindow):
     def update_p_bar(self):
         try:
             print("step int ->",self.widget_progress_values["step_integer"])
-            self.widget_progress_values["value"] = 100*self.widget_progress_values["step_integer"]/20
+            cap = int(np.maximum(1, self.p_bar_process_total_steps-1))
+            self.widget_progress_values["value"] = 100*self.widget_progress_values["step_integer"] / cap
             self.p_bar.setValue(int(self.widget_progress_values["value"]))
             if self.bar_update_active:
                 p_bar_update_thread = threading.Timer(0.01666, self.update_p_bar)
@@ -203,9 +215,14 @@ class Window(QMainWindow):
         cv2.imshow('Noise Map',self.noiseMap)
         cv2.waitKey(0)
 
+    def show_artifact_map(self):
+        artifact_map_visual = stego.pool_mask_visual(self.image_size_assignment, is_size_assignment=True)
+        cv2.imshow("Artifact Map", artifact_map_visual)
+        cv2.waitKey(0)
+
     def update_params(self):
         prev_value = self.shuffle_key
-        self.shuffle_key, ok_pressed = QInputDialog.getInt(self, "Get integer", "Shuffle Key:", self.shuffle_key, 0, 2**32 - 3, 1)
+        self.shuffle_key, ok_pressed = QInputDialog.getInt(self, "Get integer", "Shuffle Key:", self.shuffle_key, 0, 2**31 - 3, 1)
         if not ok_pressed:
             self.shuffle_key = prev_value
         self.threshold, ok_pressed = QInputDialog.getInt(self, "Get integer", "Threshold:", self.threshold, 5, 100, 1)
@@ -217,6 +234,7 @@ class Window(QMainWindow):
             self.smart_cover = False
 
     def embed_image_thread_target(self):
+        self.p_bar_process_total_steps = 21
         self.widget_progress_values["p_bar_label"] = "Encoding Image"
         self.make_p_bar()
         assignment_pass = None
@@ -226,18 +244,25 @@ class Window(QMainWindow):
                                         cover_flag=self.smart_cover, blob_expand_size=self.blob_size, bar_values=self.widget_progress_values))
 
     def decode_image_thread_target(self):
+        self.p_bar_process_total_steps = 18
         self.widget_progress_values["p_bar_label"] = "Decoding Image"
         self.make_p_bar()
-        self.msg = stego.image_read_new(self.image, shuffle_key=self.shuffle_key, threshold=self.threshold, blob_expand_size=self.blob_size)
+        self.msg = stego.image_read_new(self.image, shuffle_key=self.shuffle_key, threshold=self.threshold, blob_expand_size=self.blob_size, 
+                                        bar_values=self.widget_progress_values)
         self.editor.setPlainText(self.msg)
+        self.remove_p_bar()
 
     def update_image(self, image, calc_assignments=None):
         print("updating image")
         if calc_assignments is None:
-            calc_assignments = False
+            calc_assignments = True
         if calc_assignments:
-            self.image_size_assignment = stego.image_size_assignment(stego.isolate_bit_image(image, 7))
+            self.p_bar_process_total_steps = 7
+            self.widget_progress_values["p_bar_label"] = "Generating LSB Groupings"
+            self.make_p_bar()
+            self.image_size_assignment = stego.image_size_assignment(stego.isolate_bit_image(image, 7), bar_values=self.widget_progress_values)
             self.size_assignment_made = True
+            self.remove_p_bar()
         self.image = image
         self.remove_p_bar()
         print("image made")
@@ -274,9 +299,6 @@ class Window(QMainWindow):
         if not folder_path:
             folder_path = None
         stego.write_file_from_tuple_data(self.file_name, self.file_content, self.encoding, path_to=folder_path)
-
-
-
 
 App = QApplication(sys.argv)
 window = Window()

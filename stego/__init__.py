@@ -1174,13 +1174,19 @@ def image_write_new(img_in, message, shuffle_key=None, threshold=None, cover_fla
     bar_values["step_integer"] += 1
     return new_image
 
-def image_read_new(img, shuffle_key=None, threshold=None, blob_expand_size=None):
+def image_read_new(img, shuffle_key=None, threshold=None, blob_expand_size=None, bar_values=None):
     if threshold is None:
         threshold = 20
     if shuffle_key is None:
         shuffle_key = 17876418
     if blob_expand_size is None:
         blob_expand_size = 5
+    if bar_values is None:
+        bar_values = {
+            "value": 0,
+            "p_bar_label": "Encoding",
+            "step_integer": 0
+        }
 
 
     shuffle_key %= (2**32)-3
@@ -1189,39 +1195,43 @@ def image_read_new(img, shuffle_key=None, threshold=None, blob_expand_size=None)
     recovery_key = np.floor((10**9)*recovery_key)
     recovery_key = (recovery_key % ((2**32)-3)).astype('uint32')
     print("recovery_key ->",recovery_key)
+    bar_values["step_integer"] += 1
 
     lsb_layer = isolate_bit_image(img, 7)
-    image_size_assigned = image_size_assignment(lsb_layer)
-
-    float_mask = np.divide(np.sqrt(image_size_assigned).astype('float'), np.sqrt(np.max(image_size_assigned)))
-    cv2.imwrite("mask_generated_1.png", np.multiply(float_mask,255).astype('uint8'), [cv2.IMWRITE_PNG_COMPRESSION, 9])
-
-    print("image_size_assigned")
-    print(image_size_assigned)
+    bar_values["step_integer"] += 1
+    image_size_assigned = image_size_assignment(lsb_layer, bar_values=bar_values)
+    bar_values["step_integer"] += 1
 
     pool_test = np.zeros_like(lsb_layer)
     pool_test[np.where(image_size_assigned >= threshold)] = 1
+    bar_values["step_integer"] += 1
 
     print("pool_hash_read ->",hash(pool_test.tobytes()))
 
     blob = expand_bitmap_white_area(pool_test, blob_expand_size)
+    bar_values["step_integer"] += 1
 
     writable_pattern = gen_exclusion_pattern(np.shape(lsb_layer), threshold-5)
+    bar_values["step_integer"] += 1
 
     target_set = (1-blob)*writable_pattern
+    bar_values["step_integer"] += 1
 
     print("total bits before pattern correction ->",np.sum((1-blob)))
     print("total bits after  pattern correction ->",np.sum(target_set))
 
     target_set = np.where(target_set == 1)
     target_set = np.array(list(target_set))
+    bar_values["step_integer"] += 1
     for i in range(2):
         target_set[i] = shuffle_seed(target_set[i], shuffle_key)
 
     bits_read = bits_from_image(img, target_set)
+    bar_values["step_integer"] += 1
     bits_read = string_unshuffle_seed(bits_read, recovery_key)
-
+    bar_values["step_integer"] += 1
     message_read = from_bits(bits_read)
+    bar_values["step_integer"] += 1
 
     return message_read
 
