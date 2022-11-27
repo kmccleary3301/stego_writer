@@ -2,14 +2,35 @@ import cv2
 import numpy as np
 import random
 import codecs
+import ECC
 
-def to_bits(inStr, encodingType='utf-8'):
-    m0 = inStr.encode(encodingType)
-    m15 = ''.join([format(i, '#010b').replace('0b', '') for i in m0])
-    return m15
+def bytes_to_bits(bytes_in):
+    bin(int(bytes_in.hex(), 16))[2:]
 
-def from_bits(inStr, encodingType='utf-8', pLen=8):
-    return bytes([int(inStr[i:i+pLen], 2) for i in range(0, len(inStr)-pLen+1, pLen)]).decode(encodingType)
+def bytes_from_bits(bits_in):
+    bytes.fromhex(hex(int(bits_in, 2))[2:])
+
+def to_hex(string, encoding_type=None):
+    if encoding_type is None:
+        encoding_type = 'utf-8'
+    return bytes(string.encode(encoding_type)).hex()
+
+def from_hex(hex, encoding_type=None):
+    if encoding_type is None:
+        encoding_type = 'utf-8'
+    if hex[0:2] == '0x':
+        hex = hex[2:]
+    return bytes.fromhex(hex).decode(encoding_type)
+
+def to_bits(in_str, encodingType=None):
+    #return ''.join([format(i, '#010b').replace('0b', '') for i in in_str.encode(encodingType)])
+    return bin(int(to_hex(in_str, encoding_type=encodingType), 16))[2:]
+
+def from_bits(in_str, encodingType=None):
+    if encodingType is None:
+        encodingType = 'utf-8'
+    #return bytes([int(inStr[i:i+pLen], 2) for i in range(0, len(inStr)-pLen+1, pLen)]).decode(encodingType)
+    return bytes.fromhex(hex(int(in_str, 2))[2:]).decode(encodingType)
 
 def numpy_checkerboard(shape):
     x = np.zeros(shape, dtype=int)
@@ -57,9 +78,11 @@ def bits_to_image(image, bit_string, point_indeces, end_message_flag=None):
             break
     return image
 
-def bits_from_image(image, point_indeces, end_message_flag=None):
+def bits_from_image(image, point_indeces, end_message_flag=None, maximum_bits_cap=None):
     if end_message_flag is None:
         end_message_flag = '11011111111111111111111111111111'
+    if maximum_bits_cap is None:
+        maximum_bits_cap = -1
     search_backward_length = 18*len(end_message_flag)
     num_pixels_given = len(point_indeces[0])
     bit_string_read = ''
@@ -71,6 +94,8 @@ def bits_from_image(image, point_indeces, end_message_flag=None):
         if index%8 == 0:
             if bit_string_read[-search_backward_length:].find(end_message_flag) != -1:
                 return bit_string_read[:bit_string_read.index(end_message_flag)]
+            elif maximum_bits_cap != -1 and len(bit_string_read) >= maximum_bits_cap:
+                return bit_string_read[:maximum_bits_cap]
     try:
         return bit_string_read[:bit_string_read.index(end_message_flag)]
     except ValueError:
@@ -801,6 +826,32 @@ def gen_exclusion_pattern(shape, size):
     diamond_final = np.insert(square_diamond_get, row_insert_indices, row_add_template, axis=0)
     return tile_diamond(shape,diamond_final)
 
+def calculate_image_capacity(size_map, threshold, blob_size, bar_values=None):
+    if bar_values is None:
+        bar_values = {
+            "value": 0,
+            "p_bar_label": "Calculating Bit Capacity",
+            "step_integer": 0
+        }
+    pool_test = np.zeros_like(size_map)
+    bar_values["step_integer"] += 1
+    pool_test[np.where(image_size_assignment >= threshold)] = 1
+    bar_values["step_integer"] += 1
+    blob = expand_bitmap_white_area(pool_test, blob_size)
+    bar_values["step_integer"] += 1
+    writable_pattern = gen_exclusion_pattern(np.shape(size_map), threshold-5)
+    bar_values["step_integer"] += 1
+    target_set = (1-blob)*writable_pattern
+    bar_values["step_integer"] += 1
+    bit_capacity = 3*np.sum(target_set)
+    bar_values["step_integer"] += 1
+    return bit_capacity
+
+def calculate_message_size_in_bits(message):
+    bit_make = to_bits(message)
+    return len(bit_make)
+
+
 #/end new methods
 
 def image_write_processing(image, string_input, base_key=None, string_shuffle_key=None,
@@ -1080,7 +1131,10 @@ def image_write_check_readable(image, string_input, base_key=None, string_shuffl
     print('Message successfully written')
     return img_step_2
 
-def image_write_new(img_in, message, shuffle_key=None, threshold=None, cover_flag=None, blob_expand_size=None, bar_values=None, size_map=None):
+def image_write_new(img_in, message, shuffle_key=None, threshold=None, cover_flag=None, 
+                    blob_expand_size=None, bar_values=None, size_map=None, encryption=None,
+                    key=None):
+    #Parameter key is either an ECC public key if encryption=='ecc' or a string password if encryption=='aes'
     img = np.copy(img_in)
     if threshold is None:
         threshold = 20
@@ -1090,6 +1144,8 @@ def image_write_new(img_in, message, shuffle_key=None, threshold=None, cover_fla
         cover_flag = False
     if blob_expand_size is None:
         blob_expand_size = 5
+    if encryption is None: #Options are: "unencrypted", "aes", or "ecc"
+        encryption = 'unencrypted'
     if bar_values is None:
         bar_values = {
             "value": 0,
@@ -1147,12 +1203,37 @@ def image_write_new(img_in, message, shuffle_key=None, threshold=None, cover_fla
 
     for i in range(2):
         target_set[i] = shuffle_seed(target_set[i], shuffle_key)
-
+    
     scrub_set = (1-blob)*(1-writable_pattern)
     bar_values["step_integer"] += 1
-    bit_make = to_bits(message)
-    bit_make = string_shuffle_seed(bit_make, recovery_key)
-    new_image = bits_to_image(new_image, bit_make, target_set)
+    
+
+    if encryption == 'unencrypted':
+        bit_make = to_bits(message)
+        bit_make = string_shuffle_seed(bit_make, recovery_key)
+        new_image = bits_to_image(new_image, bit_make, target_set)
+    elif encryption == 'aes':
+        final_key = np.random.randint(0, 2**30-3)
+        final_key_str = str(final_key).zfill(32)
+        final_key_bits = ECC.encrypt_AES_plain(str(final_key_str), key)
+        
+        bit_make = ECC.encrypt_AES_plain(message, key, return_bits=True)
+        bit_make = string_shuffle_seed(bit_make, recovery_key)
+        new_image = bits_to_image(new_image, bit_make, target_set)
+    elif encryption == 'ecc':
+        final_key = np.random.randint(0, 2**32-3)
+        final_key_str = str(final_key).zfill(256)
+        final_key_bits = ECC.encrypt_ECC_plain(str(final_key_str), key)
+
+        bit_make = to_bits(message)
+        bit_make = string_shuffle_seed(bit_make, recovery_key)
+        new_image = bits_to_image(new_image, bit_make, target_set)
+        
+        
+
+
+    
+    
     bar_values["step_integer"] += 1
 
     #Both options below prevent pool corruption
@@ -1174,13 +1255,15 @@ def image_write_new(img_in, message, shuffle_key=None, threshold=None, cover_fla
     bar_values["step_integer"] += 1
     return new_image
 
-def image_read_new(img, shuffle_key=None, threshold=None, blob_expand_size=None, bar_values=None):
+def image_read_new(img, shuffle_key=None, threshold=None, blob_expand_size=None, bar_values=None, size_map=None, encryption=None, key=None):
     if threshold is None:
         threshold = 20
     if shuffle_key is None:
         shuffle_key = 17876418
     if blob_expand_size is None:
         blob_expand_size = 5
+    if encryption is None:
+        encryption = 'unencrypted'
     if bar_values is None:
         bar_values = {
             "value": 0,
@@ -1199,7 +1282,12 @@ def image_read_new(img, shuffle_key=None, threshold=None, blob_expand_size=None,
 
     lsb_layer = isolate_bit_image(img, 7)
     bar_values["step_integer"] += 1
-    image_size_assigned = image_size_assignment(lsb_layer, bar_values=bar_values)
+    if size_map is None:
+        image_size_assigned = image_size_assignment(lsb_layer, bar_values=bar_values)
+    else:
+        image_size_assigned = size_map
+        bar_values["step_integer"] += 8
+    #image_size_assigned = image_size_assignment(lsb_layer, bar_values=bar_values)
     bar_values["step_integer"] += 1
 
     pool_test = np.zeros_like(lsb_layer)
@@ -1226,12 +1314,35 @@ def image_read_new(img, shuffle_key=None, threshold=None, blob_expand_size=None,
     for i in range(2):
         target_set[i] = shuffle_seed(target_set[i], shuffle_key)
 
-    bits_read = bits_from_image(img, target_set)
-    bar_values["step_integer"] += 1
-    bits_read = string_unshuffle_seed(bits_read, recovery_key)
-    bar_values["step_integer"] += 1
-    message_read = from_bits(bits_read)
-    bar_values["step_integer"] += 1
+    if encryption == 'unencrypted':
+        bits_read = bits_from_image(img, target_set)
+        bits_read = string_unshuffle_seed(bits_read, recovery_key)
+        message_read = from_bits(bits_read)
+    elif encryption == 'aes':
+        #final_key = np.random.randint(0, 2**32-3)
+        #final_key_str = str(final_key).zfill(32)
+        #final_key_bits = ECC.encrypt_AES_plain(str(final_key_str), key)
+        
+        #bit_make = ECC.encrypt_AES_plain(message, key, return_bits=True)
+        #bit_make = string_shuffle_seed(bit_make, recovery_key)
+        #new_image = bits_to_image(new_image, bit_make, target_set)
+
+        bits_read = bits_from_image(img, target_set)
+        bits_read = string_unshuffle_seed(bits_read, recovery_key)
+        bits_read = ECC.decrypt_AES_plain(bits_read, key)
+        #message_read = from_bits(bits_read)
+    elif encryption == 'ecc':
+        #final_key = np.random.randint(0, 2**32-3)
+        #final_key_str = str(final_key).zfill(256)
+        #final_key_bits = ECC.encrypt_ECC_plain(str(final_key_str), key)
+
+        #bit_make = to_bits(message)
+        #bit_make = string_shuffle_seed(bit_make, recovery_key)
+        #new_image = bits_to_image(new_image, bit_make, target_set)
+        pass
+
+    
+    bar_values["step_integer"] += 3
 
     return message_read
 
