@@ -736,9 +736,10 @@ def convert_255(img_array):
     
     return img_array
 
-def pool_mask_visual(array_in, is_size_assignment=None):
+def pool_mask_visual(array_input, is_size_assignment=None):
     if is_size_assignment is None:
         is_size_assignment = False
+    array_in = np.minimum(array_input, 1024)
     if is_size_assignment:
         float_mask = np.divide(np.sqrt(array_in).astype('float'), np.sqrt(np.max(array_in)))
     else:

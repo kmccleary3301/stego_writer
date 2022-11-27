@@ -46,7 +46,7 @@ print("message:",message)
 
 img = cv2.imread("C:/Users/subje/Downloads/dhop.jpg")
 
-message_write = stego.image_write_new(img, message, encryption='aes', key=password)
+message_write = stego.image_write_new(img, message, encryption='unencrypted', key=password)
 
 message_recover = stego.image_read_new(message_write, encryption='unencrypted', key=password)
 print("recovered message:", message_recover)
