@@ -12,7 +12,6 @@ from time import sleep
 myappid = 'mycompany.myproduct.subproduct.version' # arbitrary string
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
-
 class image_process(QObject):
     finished = pyqtSignal()
     progress = pyqtSignal(float)
@@ -64,9 +63,6 @@ class image_process(QObject):
         self.reset_values()
         self.finished.emit()
         return self.message
-
-
-
 
 class Window(QMainWindow):
     def __init__(self):
