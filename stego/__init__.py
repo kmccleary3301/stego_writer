@@ -1272,7 +1272,6 @@ def image_read_new(img, shuffle_key=None, threshold=None, blob_expand_size=None,
             "step_integer": 0
         }
 
-
     shuffle_key %= (2**32)-3
     recovery_key = np.sin(shuffle_key).astype('float64')
     recovery_key = recovery_key - np.floor(recovery_key)
