@@ -5,7 +5,7 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 import stego
 import sys, cv2
-import threading
+# import threading
 import numpy as np
 import ctypes
 from time import sleep
@@ -168,6 +168,10 @@ class Window(QMainWindow):
         show_pool_action.triggered.connect(self.show_artifact_map)
         imageMenu.addAction(show_pool_action)
 
+        save_pool_action = QAction("Save Artifacts", self)
+        save_pool_action.triggered.connect(self.save_artifact_map)
+        imageMenu.addAction(save_pool_action)
+
         update_params_action = QAction("Update Params", self)
         update_params_action.triggered.connect(self.update_params)
         imageMenu.addAction(update_params_action)
@@ -245,6 +249,13 @@ class Window(QMainWindow):
         artifact_map_visual = stego.pool_mask_visual(self.image_data_object.image_size_assignment, is_size_assignment=True)
         cv2.imshow("Artifact Map", artifact_map_visual)
         cv2.waitKey(0)
+
+    def save_artifact_map(self):
+        self.save_file_name, _ = QFileDialog.getSaveFileName(self, "Save file", "", "Images (*.png)")
+        if not self.save_file_name:
+            return
+        artifact_map_visual = stego.pool_mask_visual(self.image_data_object.image_size_assignment, is_size_assignment=True)
+        cv2.imwrite(self.save_file_name, artifact_map_visual, [cv2.IMWRITE_PNG_COMPRESSION, 9])
 
     def update_params(self):
         prev_value = self.shuffle_key
@@ -342,10 +353,10 @@ class Window(QMainWindow):
     def embed_file_string_into_image(self):
         if not self.file_string:
             self.load_file_as_string()
-        self.embedImageString(self.file_string)
+        # self.embedImageString(self.file_string)
 
     def decode_file_from_image(self):
-        self.decodeMsg()
+        # self.decodeMsg()
         self.file_string = self.msg
 
         self.file_content, self.file_name, self.encoding = stego.convert_string_to_file_data(self.file_string)
