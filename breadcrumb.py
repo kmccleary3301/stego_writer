@@ -10,7 +10,11 @@ import numpy as np
 import ctypes
 from time import sleep
 myappid = 'mycompany.myproduct.subproduct.version' # arbitrary string
-ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+# Add logo to taskbar on Windows
+try:
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+except:
+    pass
 
 class image_process(QObject):
     finished = pyqtSignal()
