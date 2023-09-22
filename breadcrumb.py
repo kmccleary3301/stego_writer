@@ -366,6 +366,9 @@ class Window(QMainWindow):
         self.file_content, self.file_name, self.encoding = stego.convert_string_to_file_data(self.file_string)
 
     def save_file_data(self):
+        self.file_string = self.msg
+
+        self.file_content, self.file_name, self.encoding = stego.convert_string_to_file_data(self.file_string)
         if not self.file_name:
             return
         if not self.file_content:

@@ -141,7 +141,7 @@ def string_shuffle_seed(string_in, seed):
     return str_return
 
 def string_unshuffle_seed(string_in, seed):
-    str_unshuffle_array = unshuffle_seed(list(string_in), seed)
+    str_unshuffle_array = unshuffle_seed(map(lambda c: c, string_in), seed)
     str_return = ''
     for char in str_unshuffle_array:
         str_return += char
@@ -1314,8 +1314,11 @@ def image_read_new(img, shuffle_key=None, threshold=None, blob_expand_size=None,
         target_set[i] = shuffle_seed(target_set[i], shuffle_key)
 
     if encryption == 'unencrypted':
+        print("bits read 1")
         bits_read = bits_from_image(img, target_set)
+        print("bits read 2")
         bits_read = string_unshuffle_seed(bits_read, recovery_key)
+        print("bits read 3")
         message_read = from_bits(bits_read)
     elif encryption == 'aes':
         #final_key = np.random.randint(0, 2**32-3)
