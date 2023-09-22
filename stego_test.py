@@ -245,25 +245,21 @@ def gen_exclusion_pattern(shape, size):
     return tile_diamond(shape,diamond_final)
 
 def main():
-    img = cv2.imread("C:/Users/subje/Downloads/dhop.jpg")
+    img = cv2.imread("C:/Users/subje/Downloads/raccoon.png")
     alphabet = np.array([char for char in "abcdefghijklmnopqrstuvwxyz0123456789"])
     message_length = 20000
     letter_select = np.random.randint(len(alphabet), size=message_length)
-    message = ""
-    for char in alphabet[letter_select]:
-        message += char
+    
+    message = "".join(alphabet[letter_select])
 
+    img_make = stego.image_write_new(img, message)
 
-
-    img_make = stego.image_write_processing_v2(img, message)
-
-    message_recover = stego.image_read_processing_v2(img_make)
+    message_recover = stego.image_read_new(img_make)
 
     if message == message_recover:
         print("Message recovered exactly")
 
 def image_write(img_in, message, shuffle_key=None, threshold=None, cover_flag=None):
-
     img = np.copy(img_in)
 
     if threshold is None:
@@ -380,38 +376,50 @@ def image_read(img, shuffle_key=None, threshold=None):
 
     return message_read
 
-def pattern_test():
-    tile_test = np.tile([1,2,3,4,5], (3, 1))
-    print("tile_test")
-    print(tile_test)
+# def pattern_test():
+#     tile_test = np.tile([1,2,3,4,5], (3, 1))
+#     print("tile_test")
+#     print(tile_test)
     
     
-    diamond = gen_diamond(20)
-    #np.set_printoptions(threshold=sys.maxsize)
-    #np.set_printoptions(linewidth=np.inf)
-    print("diamond")
-    print(diamond)
-    print("shape",np.shape(diamond))
+#     diamond = stego.gen_diamond(20)
+#     #np.set_printoptions(threshold=sys.maxsize)
+#     #np.set_printoptions(linewidth=np.inf)
+#     print("diamond")
+#     print(diamond)
+#     print("shape",np.shape(diamond))
 
 
-    grid_get = generate_pattern((400, 400), 57)
-    cv2.imwrite("pattern_made.png", np.multiply(grid_get, 255).astype('uint8'), [cv2.IMWRITE_PNG_COMPRESSION, 9])
+#     grid_get = generate_pattern((400, 400), 57)
+#     cv2.imwrite("pattern_made.png", np.multiply(grid_get, 255).astype('uint8'), [cv2.IMWRITE_PNG_COMPRESSION, 9])
+
 
 def main_4():
-    make_pattern = gen_exclusion_pattern((400, 400),81)
+    make_pattern = gen_exclusion_pattern((400, 400),12)
     cv2.imwrite("pattern_make.png", stego.convert_255(make_pattern), [cv2.IMWRITE_PNG_COMPRESSION, 9])
-    #diamond_make = gen_old_diamond(80)
-    #diamond_make = gen_diamond(6)
-    #tile_pattern = tile_diamond((400, 400), diamond_make)
 
+def recovery_test():
+    img = cv2.imread("C:/Users/subje/Downloads/raccoon.png")
+    alphabet = np.array([char for char in "abcdefghijklmnopqrstuvwxyz0123456789"])
+    message_length = 20000
+    letter_select = np.random.randint(len(alphabet), size=message_length)
+    
+    message = "".join(alphabet[letter_select])
 
+    img_make = image_write(img, message)
+
+    message_recover = image_read(img_make)
+
+    if message == message_recover:
+        print("Message recovered exactly")
 
 
 
 
 
 #compare_blobs()
-#main()
-main_3()
-#main_4()
+main()
+# main_3()
+# main_4()
 #pattern_test()
+# recovery_test()

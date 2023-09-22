@@ -47,6 +47,7 @@ class image_process(QObject):
         self.finished.emit()
     
     def embed_message_in_image(self, message, threshold=None, blob_size=None, key=None, encryption=None, shuffle_key=None):
+        print("Calling embed_message_in_image")
         self.reset_values()
         self.message = message
         self.image = stego.image_write_new(self.image, message, shuffle_key=shuffle_key, threshold=threshold, blob_expand_size=blob_size,
@@ -55,6 +56,7 @@ class image_process(QObject):
         self.finished.emit()
     
     def read_message_from_image(self, threshold=None, blob_size=None, key=None, encryption=None, shuffle_key=None):
+        print("Calling read_message_from_image")
         self.reset_values()
         message = stego.image_read_new(self.image, shuffle_key=shuffle_key, threshold=threshold, blob_expand_size=blob_size,
                                         bar_values=self.progress_values, size_map=self.image_size_assignment, encryption=encryption,
@@ -69,6 +71,12 @@ class Window(QMainWindow):
         super().__init__()
         self.setWindowTitle("Breadcrumb")
         self.setGeometry(570, 300, 780, 480)
+        self.reset_application_state()
+
+        self.UiComponents()
+        self.show()
+
+    def reset_application_state(self):
         self.bitmap = None
         self.blobData = None
         self.blobExpanded = None
@@ -88,9 +96,6 @@ class Window(QMainWindow):
         self.file_name = None
         self.file_content = None
         self.encoding = None
-
-        self.UiComponents()
-        self.show()
 
     def UiComponents(self):
         self.setWindowIcon(QtGui.QIcon('logo.png'))
@@ -116,14 +121,10 @@ class Window(QMainWindow):
             "step_integer": 0
         } #this is a dict, so it's mutable and can be effectively passed by reference
 
-        self.p_bar_persistent_thread = QTimer()
+        self.thread = None
         #self.thread = QThread()
-        self.image_data_object = image_process()
-        self.p_bar_persistent_thread.timeout.connect(self.image_data_object.persistent_value_update)
-        self.image_data_object.progress.connect(self.update_p_bar)
-        self.p_bar_persistent_thread.start(16)
-        self.thread = QThread()
-        self.image_data_object.moveToThread(self.thread)
+        self.set_image_data_object()
+       
 
         # making container as central widget
         self.setCentralWidget(container)
@@ -186,6 +187,16 @@ class Window(QMainWindow):
         save_file_from_data_action = QAction("Save File", self)
         save_file_from_data_action.triggered.connect(self.save_file_data)
         msgMenu.addAction(save_file_from_data_action)
+
+    def set_image_data_object(self):
+        self.p_bar_persistent_thread = QTimer()
+        self.image_data_object = image_process()
+        self.p_bar_persistent_thread.timeout.connect(self.image_data_object.persistent_value_update)
+        self.image_data_object.progress.connect(self.update_p_bar)
+        self.p_bar_persistent_thread.start(16)
+        self.thread = QThread()
+        # self.thread.
+        self.image_data_object.moveToThread(self.thread)
 
     def set_p_bar(self, label):
         self.p_bar.setValue(0)
@@ -260,6 +271,7 @@ class Window(QMainWindow):
         self.p_bar.setValue(val_set)
 
     def update_image(self, image, calc_assignments=None):
+        self.set_image_data_object()
         self.image_data_object.image = image
         if calc_assignments is None:
             calc_assignments = True

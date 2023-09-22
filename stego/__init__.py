@@ -851,8 +851,6 @@ def calculate_image_capacity(size_map, threshold, blob_size, bar_values=None):
 def calculate_message_size_in_bits(message):
     bit_make = to_bits(message)
     return len(bit_make)
-
-
 #/end new methods
 
 def image_write_processing(image, string_input, base_key=None, string_shuffle_key=None,
@@ -1213,6 +1211,7 @@ def image_write_new(img_in, message, shuffle_key=None, threshold=None, cover_fla
         bit_make = to_bits(message)
         bit_make = string_shuffle_seed(bit_make, recovery_key)
         new_image = bits_to_image(new_image, bit_make, target_set)
+        print("Writing bits:",bit_make[:32])
     elif encryption == 'aes':
         final_key = np.random.randint(0, 2**30-3)
         final_key_str = str(final_key).zfill(32)

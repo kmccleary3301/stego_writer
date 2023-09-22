@@ -44,7 +44,7 @@ print("message:",message)
 #message_recover = ECC.decrypt_AES_plain(encrypt, password)
 #print("message recover:", message_recover)
 
-img = cv2.imread("C:/Users/subje/Downloads/dhop.jpg")
+img = cv2.imread("C:/Users/subje/Downloads/raccoon.png")
 
 message_write = stego.image_write_new(img, message, encryption='unencrypted', key=password)
 
